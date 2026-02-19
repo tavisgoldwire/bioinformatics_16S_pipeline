@@ -10,13 +10,13 @@
 
 # ── SLURM directives ───────────────────────────────────────────────────────────
 #SBATCH --job-name=dorado_16s_pipeline
-#SBATCH --account=duttonc
+#SBATCH --account=tgoldwire
 #SBATCH --qos=duttonc
 #SBATCH --partition=hpg-turin
 #SBATCH --gpus=2
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=96G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=duttonc@ufl.edu
 # Log path is set dynamically below; SLURM requires a literal path at submit time,
