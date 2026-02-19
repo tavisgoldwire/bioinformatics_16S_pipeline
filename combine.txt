@@ -1,0 +1,113 @@
+#!/bin/bash
+
+# ==============================================================================
+# SLURM Directives (Minimal for a quick combine job)
+# ==============================================================================
+#SBATCH --job-name=emu_combine_manual 
+#SBATCH --account=tgoldwire                 
+#SBATCH --qos=duttonc                       
+#SBATCH --partition=hpg-turin               
+#SBATCH --time=01:00:00                     
+#SBATCH --output=/blue/duttonc/tgoldwire/emu/disney_water/logs/emu_combine_manual_%j.log 
+#SBATCH --mail-type=END,FAIL                
+#SBATCH --mail-user=tgoldwire@ufl.edu       
+
+# ==============================================================================
+# PATH SETUP: ADJUSTED FOR DISNEY WATER DATA
+# ==============================================================================
+CD_DIR="/blue/duttonc/tgoldwire/emu/disney_water"
+cd "$CD_DIR" || { echo "ERROR: Cannot change directory to $CD_DIR. Exiting." >&2; exit 1; }
+
+# Define output filenames (Renamed to reflect Relative Abundance)
+FINAL_TSV="combined_emu_rel_abundance.tsv"
+FINAL_CSV="combined_emu_rel_abundance.csv"
+UNIQUE_TAXA_FILE="all_unique_taxa.tsv"
+
+echo "Creating combined relative abundance table with proper row matching..."
+
+# ------------------------------------------------------------------------------
+# Step 1: Get all unique tax_ids and their taxonomy info across ALL samples
+# ------------------------------------------------------------------------------
+echo "Getting all unique taxa..."
+
+# Use find to locate all relevant files (*_rel-abundance.tsv)
+ALL_INPUT_FILES=$(find . -type f -name "*.fastq_rel-abundance.tsv")
+
+# Concatenate all files, extract tax_id ($1) and taxonomy columns ($3-$13), then sort unique rows.
+# Column $14 is the relative abundance data, which is extracted in Step 3.
+printf "%s" "$ALL_INPUT_FILES" | xargs cat | \
+awk -F$'\t' 'NR>1 {print $1"\t"$3"\t"$4"\t"$5"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12"\t"$13}' | \
+sort -u > "$UNIQUE_TAXA_FILE"
+
+# ------------------------------------------------------------------------------
+# Step 2: Create header and define sample list
+# ------------------------------------------------------------------------------
+# Header for taxonomy columns (12 fields)
+printf "tax_id\tsuperkingdom\tphylum\tclass\torder\tfamily\tgenus\tspecies\tclade\tsubspecies\tspecies_subgroup\tspecies_group" > "$FINAL_TSV"
+
+# Dynamically define the list of samples to process (barcode01-24 and unclassified)
+SAMPLES=()
+for i in $(seq 1 24); do
+    SAMPLE_NAME="barcode$(printf "%02d" "$i")"
+    # Check if the individual output file exists
+    if [[ -f "${SAMPLE_NAME}/${SAMPLE_NAME}.fastq_rel-abundance.tsv" ]]; then
+        SAMPLES+=("${SAMPLE_NAME}")
+        printf "\t%s" "$SAMPLE_NAME" >> "$FINAL_TSV"
+    fi
+done
+
+# Include 'unclassified' if the file exists
+if [[ -f "unclassified/unclassified.fastq_rel-abundance.tsv" ]]; then
+    SAMPLES+=("unclassified")
+    printf "\tunclassified" >> "$FINAL_TSV"
+fi
+printf "\n" >> "$FINAL_TSV"
+
+echo "Found ${#SAMPLES[@]} samples: ${SAMPLES[*]}"
+
+# ------------------------------------------------------------------------------
+# Step 3: For each unique tax_id, get abundance from each sample
+# ------------------------------------------------------------------------------
+echo "Matching taxa across all samples..."
+
+# The 'while read' loop reads the unique taxonomy list line by line
+while IFS=$'\t' read -r tax_id superkingdom phylum class order family genus species clade subspecies species_subgroup species_group; do
+    # 1. Print taxonomy info (12 fields)
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" \
+        "$tax_id" "$superkingdom" "$phylum" "$class" "$order" "$family" "$genus" "$species" "$clade" "$subspecies" "$species_subgroup" "$species_group" >> "$FINAL_TSV"
+    
+    # 2. For each sample, look up this tax_id and get its relative abundance (column 14)
+    for sample in "${SAMPLES[@]}"; do
+        # The input file path is: ${sample}/${sample}.fastq_rel-abundance.tsv
+        # We look for the tax_id ($1) and extract the abundance ($14)
+        abundance=$(awk -F$'\t' -v tid="$tax_id" '$1==tid {print $14; exit}' "${sample}/${sample}.fastq_rel-abundance.tsv")
+        
+        # If no abundance is found (tax_id not present), set it to "0"
+        if [[ -z "$abundance" ]]; then
+            abundance="0"
+        fi
+        
+        printf "\t%s" "$abundance" >> "$FINAL_TSV"
+    done
+    printf "\n" >> "$FINAL_TSV"
+
+done < "$UNIQUE_TAXA_FILE"
+
+# ------------------------------------------------------------------------------
+# Step 4: Create CSV version and clean up
+# ------------------------------------------------------------------------------
+sed 's/\t/,/g' "$FINAL_TSV" > "$FINAL_CSV"
+
+# Clean up
+rm "$UNIQUE_TAXA_FILE"
+
+echo "Done! Created:"
+echo "- $FINAL_TSV"
+echo "- $FINAL_CSV" 
+echo "Total unique taxa: $(tail -n +2 "$FINAL_TSV" | wc -l)"
+echo "Samples included: ${#SAMPLES[@]}"
+
+# Verify the data looks correct
+echo ""
+echo "First few rows of the combined data:"
+head -3 "$FINAL_TSV"
