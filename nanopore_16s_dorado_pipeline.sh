@@ -429,3 +429,5 @@ awk -F'\t' 'NR>1 && $1!~/unclassified/ {print $2"\t"$1}' "$COUNTS_TSV" \
 echo ""
 echo -e "${GREEN}Pipeline complete.${NC} Outputs in: $OUT_DIR"
 echo -e "${BOLD}════════════════════════════════════════${NC}"
+echo -e "${GREEN}Pipeline complete.${NC} Outputs in: $OUT_DIR"
+echo -e "${BOLD}════════════════════════════════════════${NC}"
